@@ -10,8 +10,8 @@ class SimpleHandTracker:
         self.hands = self.mp_hands.Hands(
             static_image_mode=False,
             max_num_hands=2,
-            min_detection_confidence=0.7,
-            min_tracking_confidence=0.5,
+            min_detection_confidence=0.5,  # Lower threshold for faster detection
+            min_tracking_confidence=0.3,   # Lower threshold for faster tracking
             model_complexity=0
         )
         self.mp_drawing = mp.solutions.drawing_utils
@@ -188,7 +188,8 @@ class SimpleHandTracker:
         print("Press 'q' to quit")
         
         last_gesture_time = 0
-        gesture_cooldown = 0.5  # Print gestures every 0.5 seconds max
+        gesture_cooldown = 1.0  # Longer cooldown to reduce processing
+        frame_skip = 0  # For frame skipping optimization
         
         while True:
             ret, frame = cap.read()
@@ -198,7 +199,9 @@ class SimpleHandTracker:
             # Flip for mirror effect
             frame = cv2.flip(frame, 1)
             
-            # Process with MediaPipe
+            frame_skip += 1
+            
+            # Process with MediaPipe (simplified - removed problematic frame skipping)
             rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             results = self.hands.process(rgb_frame)
             
