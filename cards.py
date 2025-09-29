@@ -119,8 +119,6 @@ def main():
     zoom_target = 1.0
     zoom_idx = None
     zoom_anim_start = 0
-    zoom_hold = False
-    zoom_hold_start = 0
     while True:
         ret, frame = cap.read()
         if not ret:
@@ -133,7 +131,7 @@ def main():
 
         # Pinch detection: both hands must pinch
         pinch_count = sum(is_pinch_gesture(lm) for lm in hand_landmarks)
-        if state.mode == 'card' and pinch_count >= 2 and not zooming and not zoom_hold:
+        if state.mode == 'card' and pinch_count >= 2 and not zooming:
             zooming = True
             zoom_idx = round(state.card_anim_pos)
             zoom_anim_start = time.time()
@@ -145,16 +143,11 @@ def main():
             zoom_scale = 1.0 + min(1.5, elapsed * 2)
             if zoom_scale >= zoom_target:
                 zoom_scale = zoom_target
-                # Hold for 2 seconds after zoom
-                if not zoom_hold:
-                    zoom_hold = True
-                    zoom_hold_start = time.time()
-                zooming = False
-        if zoom_hold:
-            if time.time() - zoom_hold_start > 1.0:
-                zoom_hold = False
-                zoom_scale = 1.0
-                zoom_idx = None
+                # Hold for a moment, then reset
+                if elapsed > 1.2:
+                    zooming = False
+                    zoom_scale = 1.0
+                    zoom_idx = None
         # Reset if no hands
         if not hand_landmarks:
             state.mode = 'gesture'
@@ -165,7 +158,6 @@ def main():
             zooming = False
             zoom_scale = 1.0
             zoom_idx = None
-            zoom_hold = False
         # --- GESTURE MODE ---
         elif state.mode == 'gesture':
             ok_count = sum(is_ok_gesture(lm) for lm in hand_landmarks)
@@ -179,7 +171,7 @@ def main():
                 state.target_index = state.card_index
                 state.card_anim_pos = float(state.card_index)
         # --- CARD VIEW MODE ---
-        elif state.mode == 'card' and not zooming and not zoom_hold:
+        elif state.mode == 'card' and not zooming:
             now = time.time()
             scrolled = False
             for idx, hand in enumerate(hand_landmarks):
