@@ -23,17 +23,6 @@ class HandState:
         self.last_scroll = 0
         self.last_scroll_time = 0
 
-# List of app names for the cards
-APP_NAMES = [
-    "Mail",
-    "Music",
-    "Safari",
-    "Messages",
-    "Calendar",
-    "Maps",
-    "Camera"
-]
-
 # Utility: Check if hand is doing OK gesture (thumb tip and index tip close)
 def is_ok_gesture(landmarks):
     if not landmarks:
@@ -68,43 +57,25 @@ def is_one_finger_point(landmarks):
         and not extended(20, 18)
     )
 
-# Utility: Check if hand is doing pinch gesture (thumb tip and index tip close)
-def is_pinch_gesture(landmarks):
-    if not landmarks:
-        return False
-    thumb_tip = landmarks[4]
-    index_tip = landmarks[8]
-    dist = math.hypot(thumb_tip.x - index_tip.x, thumb_tip.y - index_tip.y)
-    return dist < 0.04
-
-def draw_cards(frame, center_x, center_y, anim_pos, zoom_idx=None, zoom_scale=1.0):
+def draw_cards(frame, center_x, center_y, anim_pos):
     for i in range(CARD_COUNT):
-        # If zooming, only draw the zoomed card
-        if zoom_idx is not None and i != zoom_idx:
-            continue
         offset = (i - anim_pos) * (CARD_WIDTH + CARD_SPACING)
         x = int(center_x + offset)
         y = int(center_y)
         color = (255, 255, 255) if round(anim_pos) == i else (200, 200, 200)
-        # Zoom effect for selected card
-        if zoom_idx is not None and i == zoom_idx:
-            scale = zoom_scale
-        else:
-            scale = 1.0
-        w = int(CARD_WIDTH * scale)
-        h = int(CARD_HEIGHT * scale)
-        cv2.rectangle(frame, (x - w//2, y - h//2), (x + w//2, y + h//2), color, -1)
-        cv2.rectangle(frame, (x - w//2, y - h//2), (x + w//2, y + h//2), (0,0,0), 4)
-        # Center app name text
-        if i < len(APP_NAMES):
-            text = APP_NAMES[i]
-            font = cv2.FONT_HERSHEY_SIMPLEX
-            font_scale = 1.8 * scale
-            thickness = 3
-            (text_width, text_height), _ = cv2.getTextSize(text, font, font_scale, thickness)
-            text_x = x - text_width // 2
-            text_y = y + text_height // 2
-            cv2.putText(frame, text, (text_x, text_y), font, font_scale, (0,0,0), thickness)
+        cv2.rectangle(frame, (x - CARD_WIDTH//2, y - CARD_HEIGHT//2),
+                      (x + CARD_WIDTH//2, y + CARD_HEIGHT//2), color, -1)
+        cv2.rectangle(frame, (x - CARD_WIDTH//2, y - CARD_HEIGHT//2),
+                      (x + CARD_WIDTH//2, y + CARD_HEIGHT//2), (0,0,0), 4)
+        # Center the text on the card
+        text = f"App {i+1}"
+        font = cv2.FONT_HERSHEY_SIMPLEX
+        font_scale = 1.5
+        thickness = 3
+        text_size, _ = cv2.getTextSize(text, font, font_scale, thickness)
+        text_x = x - text_size[0] // 2
+        text_y = y + text_size[1] // 2
+        cv2.putText(frame, text, (text_x, text_y), font, font_scale, (0,0,0), thickness)
 
 def main():
     import time
@@ -114,11 +85,6 @@ def main():
     last_scroll_hand = None
     last_scroll_time = 0
     ANIM_SPEED = 0.18  # Lower is slower
-    zooming = False
-    zoom_scale = 1.0
-    zoom_target = 1.0
-    zoom_idx = None
-    zoom_anim_start = 0
     while True:
         ret, frame = cap.read()
         if not ret:
@@ -129,25 +95,6 @@ def main():
         results = hands.process(rgb)
         hand_landmarks = [h.landmark for h in results.multi_hand_landmarks] if results.multi_hand_landmarks else []
 
-        # Pinch detection: both hands must pinch
-        pinch_count = sum(is_pinch_gesture(lm) for lm in hand_landmarks)
-        if state.mode == 'card' and pinch_count >= 2 and not zooming:
-            zooming = True
-            zoom_idx = round(state.card_anim_pos)
-            zoom_anim_start = time.time()
-            zoom_scale = 1.0
-            zoom_target = 2.5
-        # Animate zoom
-        if zooming:
-            elapsed = time.time() - zoom_anim_start
-            zoom_scale = 1.0 + min(1.5, elapsed * 2)
-            if zoom_scale >= zoom_target:
-                zoom_scale = zoom_target
-                # Hold for a moment, then reset
-                if elapsed > 1.2:
-                    zooming = False
-                    zoom_scale = 1.0
-                    zoom_idx = None
         # Reset if no hands
         if not hand_landmarks:
             state.mode = 'gesture'
@@ -155,9 +102,6 @@ def main():
             state.card_index = 0
             state.target_index = 0
             state.card_anim_pos = float(state.card_index)
-            zooming = False
-            zoom_scale = 1.0
-            zoom_idx = None
         # --- GESTURE MODE ---
         elif state.mode == 'gesture':
             ok_count = sum(is_ok_gesture(lm) for lm in hand_landmarks)
@@ -171,7 +115,7 @@ def main():
                 state.target_index = state.card_index
                 state.card_anim_pos = float(state.card_index)
         # --- CARD VIEW MODE ---
-        elif state.mode == 'card' and not zooming:
+        elif state.mode == 'card':
             now = time.time()
             scrolled = False
             for idx, hand in enumerate(hand_landmarks):
@@ -219,7 +163,7 @@ def main():
 
         # Draw UI
         if state.mode == 'card':
-            draw_cards(frame, w//2, h//2, state.card_anim_pos, zoom_idx, zoom_scale)
+            draw_cards(frame, w//2, h//2, state.card_anim_pos)
             cv2.putText(frame, "Select App", (30, 60), cv2.FONT_HERSHEY_SIMPLEX, 2, (255,255,255), 4)
         else:
             cv2.putText(frame, "Gesture Mode: Show double OK to enter Card View", (30, 60), cv2.FONT_HERSHEY_SIMPLEX, 1, (255,255,255), 2)
