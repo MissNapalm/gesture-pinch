@@ -8,6 +8,12 @@ CARD_COUNT = 7
 CARD_WIDTH = 420
 CARD_HEIGHT = 400
 CARD_SPACING = 60
+CAROUSEL_CATEGORIES = [
+    ["Mail", "Music", "Safari", "Messages", "Calendar", "Maps", "Camera"],
+    ["Photos", "Notes", "Reminders", "Clock", "Weather", "Stocks", "News"],
+    ["YouTube", "Netflix", "Twitch", "Spotify", "Podcasts", "Books", "Games"]
+]
+NUM_CATEGORIES = len(CAROUSEL_CATEGORIES)
 
 mp_hands = mp.solutions.hands
 mp_drawing = mp.solutions.drawing_utils
@@ -57,7 +63,8 @@ def is_one_finger_point(landmarks):
         and not extended(20, 18)
     )
 
-def draw_cards(frame, center_x, center_y, anim_pos):
+def draw_cards(frame, center_x, center_y, anim_pos, category_idx=0):
+    app_names = CAROUSEL_CATEGORIES[category_idx]
     for i in range(CARD_COUNT):
         offset = (i - anim_pos) * (CARD_WIDTH + CARD_SPACING)
         x = int(center_x + offset)
@@ -67,15 +74,16 @@ def draw_cards(frame, center_x, center_y, anim_pos):
                       (x + CARD_WIDTH//2, y + CARD_HEIGHT//2), color, -1)
         cv2.rectangle(frame, (x - CARD_WIDTH//2, y - CARD_HEIGHT//2),
                       (x + CARD_WIDTH//2, y + CARD_HEIGHT//2), (0,0,0), 4)
-        # Center the text on the card
-        text = f"App {i+1}"
-        font = cv2.FONT_HERSHEY_SIMPLEX
-        font_scale = 1.5
-        thickness = 3
-        text_size, _ = cv2.getTextSize(text, font, font_scale, thickness)
-        text_x = x - text_size[0] // 2
-        text_y = y + text_size[1] // 2
-        cv2.putText(frame, text, (text_x, text_y), font, font_scale, (0,0,0), thickness)
+        # Center the app name on the card
+        if i < len(app_names):
+            text = app_names[i]
+            font = cv2.FONT_HERSHEY_SIMPLEX
+            font_scale = 1.5
+            thickness = 3
+            text_size, _ = cv2.getTextSize(text, font, font_scale, thickness)
+            text_x = x - text_size[0] // 2
+            text_y = y + text_size[1] // 2
+            cv2.putText(frame, text, (text_x, text_y), font, font_scale, (0,0,0), thickness)
 
 def main():
     import time
@@ -85,6 +93,16 @@ def main():
     last_scroll_hand = None
     last_scroll_time = 0
     ANIM_SPEED = 0.18  # Lower is slower
+    category_idx = 0
+    vertical_anim = 0.0  # For smooth vertical scroll
+    target_category = 0
+    vertical_scroll_cooldown = 0
+    last_vertical_scroll_time = 0
+    VERTICAL_ANIM_SPEED = 0.18
+    TOP_SECTOR_FRAC = 0.25  # Top fourth of the screen
+    BOTTOM_SECTOR_FRAC = 0.75  # Bottom fourth of the screen (start of bottom sector)
+    last_finger_in_top = False
+    last_finger_in_bottom = False
     while True:
         ret, frame = cap.read()
         if not ret:
@@ -94,6 +112,33 @@ def main():
         rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         results = hands.process(rgb)
         hand_landmarks = [h.landmark for h in results.multi_hand_landmarks] if results.multi_hand_landmarks else []
+
+        # Check for finger in top and bottom sectors
+        finger_in_top = False
+        finger_in_bottom = False
+        for hand in hand_landmarks:
+            # Use index finger tip (landmark 8)
+            y_px = hand[8].y * h
+            if y_px < h * TOP_SECTOR_FRAC:
+                finger_in_top = True
+            if y_px > h * BOTTOM_SECTOR_FRAC:
+                finger_in_bottom = True
+
+        # Only allow vertical scroll if not already animating and not just scrolled
+        now = time.time()
+        if finger_in_top and not last_finger_in_top and now - last_vertical_scroll_time > 0.7:
+            target_category = (target_category + 1) % NUM_CATEGORIES
+            last_vertical_scroll_time = now
+        if finger_in_bottom and not last_finger_in_bottom and now - last_vertical_scroll_time > 0.7:
+            target_category = (target_category - 1) % NUM_CATEGORIES
+            last_vertical_scroll_time = now
+        last_finger_in_top = finger_in_top
+        last_finger_in_bottom = finger_in_bottom
+
+        # Animate vertical scroll
+        vertical_anim += (target_category - vertical_anim) * VERTICAL_ANIM_SPEED
+        if abs(vertical_anim - target_category) < 0.01:
+            vertical_anim = float(target_category)
 
         # Reset if no hands
         if not hand_landmarks:
@@ -163,7 +208,15 @@ def main():
 
         # Draw UI
         if state.mode == 'card':
-            draw_cards(frame, w//2, h//2, state.card_anim_pos)
+            # Interpolate category for smooth vertical scroll
+            cat_idx = int(round(vertical_anim))
+            y_offset = int((vertical_anim - cat_idx) * h)
+            # Draw current and next/prev carousels for smooth transition
+            draw_cards(frame, w//2, h//2 - y_offset, state.card_anim_pos, cat_idx)
+            if cat_idx + 1 < NUM_CATEGORIES:
+                draw_cards(frame, w//2, h//2 - y_offset + h, state.card_anim_pos, (cat_idx + 1) % NUM_CATEGORIES)
+            if cat_idx - 1 >= 0:
+                draw_cards(frame, w//2, h//2 - y_offset - h, state.card_anim_pos, (cat_idx - 1) % NUM_CATEGORIES)
             cv2.putText(frame, "Select App", (30, 60), cv2.FONT_HERSHEY_SIMPLEX, 2, (255,255,255), 4)
         else:
             cv2.putText(frame, "Gesture Mode: Show double OK to enter Card View", (30, 60), cv2.FONT_HERSHEY_SIMPLEX, 1, (255,255,255), 2)
